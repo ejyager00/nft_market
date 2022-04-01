@@ -11,3 +11,4 @@ artifacts
 .DS_Store
 scripts/sample-script.js
 test/sample-test.js
+example_commands.md
