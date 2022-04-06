@@ -39,12 +39,67 @@ contract Auction {
         uint256 bid;
     }
 
-    function placeBid() payable external returns(bool){} // Place a bid on the auction
-    function withdrawToken() external returns(bool){} // Withdraw the token after the auction is over
-    function withdrawFunds() external returns(bool){} // Withdraw the funds after the auction is over
-    function cancelAuction() external returns(bool){} // Cancel the auction
-    function getAuctionState() public view returns(uint) {} // Get the auction state
-    function allBids() external view returns (address[] memory, uint256[] memory) {} // Returns a list of all bids and addresses
+    // Place a bid on the auction
+    function placeBid() payable external returns(bool){
+        require(msg.sender != creator); // The auction creator can not place a bid
+        require(getAuctionState() == AuctionState.OPEN); // The auction must be open
+        require(msg.value > startPrice); // The bid must be higher than the starting price
+        require(msg.value > maxBid + minIncrement); // The bid must be higher than the current bid
+        address lastHightestBidder = maxBidder; // The address of the last highest bidder
+        uint256 lastHighestBid = maxBid; // The last highest bid
+        maxBid = msg.value; // The new highest bid
+        maxBidder = msg.sender; // The address of the new highest bidder
+        if(msg.value >= directBuyPrice){ // If the bid is higher or equal to the direct buy price
+            isDirectBuy = true; // The auction has ended
+        }
+        bids.push(Bid(msg.sender,msg.value));
+        if(lastHighestBid != 0){ // if there is a bid
+            address(uint160(lastHightestBidder)).transfer(lastHighestBid); // refund the previous bid to the previous highest bidder
+        }
+        emit NewBid(msg.sender,msg.value); // emit a new bid event
+        return true;
+    }
+    // Withdraw the token after the auction is over
+    function withdrawToken() external returns(bool){
+        require(getAuctionState() == AuctionState.ENDED || getAuctionState() == AuctionState.DIRECT_BUY); // The auction must be ended by either a direct buy or timeout
+        require(msg.sender == maxBidder); // The highest bidder can only withdraw the token
+        _nft.transferFrom(address(this), maxBidder, tokenId); // Transfer the token to the highest bidder
+        emit WithdrawToken(maxBidder); // Emit a withdraw token event
+    }
+    // Withdraw the funds after the auction is over
+    function withdrawFunds() external returns(bool){
+        require(getAuctionState() == AuctionState.ENDED || getAuctionState() == AuctionState.DIRECT_BUY); // The auction must be ended by either a direct buy or timeout
+        require(msg.sender == creator); // The auction creator can only withdraw the funds
+        address(uint160(msg.sender)).transfer(maxBid);
+        emit WithdrawFunds(msg.sender,maxBid); // Emit a withdraw funds event
+    }
+    // Cancel the auction
+    function cancelAuction() external returns(bool){
+        require(msg.sender == creator); // Only the auction creator can cancel the auction
+        require(getAuctionState() == AuctionState.OPEN); // The auction must be open
+        require(maxBid == 0); // The auction must not be cancelled if there is a bid
+        isCancelled = true; // The auction has been cancelled
+        _nft.transferFrom(address(this), creator, tokenId); // Transfer the NFT token to the auction creator
+        emit AuctionCanceled(); // Emit Auction Canceled event
+        return true;
+    }
+    // Get the auction state
+    function getAuctionState() public view returns(AuctionState) {
+        if(isCancelled) return AuctionState.CANCELLED; // If the auction is cancelled return CANCELLED
+        if(isDirectBuy) return AuctionState.DIRECT_BUY; // If the auction is ended by a direct buy return DIRECT_BUY
+        if(block.timestamp >= endTime) return AuctionState.ENDED; // The auction is over if the block timestamp is greater than the end timestamp, return ENDED
+        return AuctionState.OPEN; // Otherwise return OPEN
+    }
+    // Returns a list of all bids and addresses
+    function allBids() external view returns (address[] memory, uint256[] memory) {
+        address[] memory addrs = new address[](bids.length);
+        uint256[] memory bidPrice = new uint256[](bids.length);
+        for (uint256 i = 0; i < bids.length; i++) {
+            addrs[i] = bids[i].sender;
+            bidPrice[i] = bids[i].bid;
+        }
+        return (addrs, bidPrice);
+    }
 
     event NewBid(address bidder, uint bid); // A new bid was placed
     event WithdrawToken(address withdrawer); // The auction winner withdrawed the token
